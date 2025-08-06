@@ -1,15 +1,35 @@
+# 環境変数
 .env
 .env.*
 *.env
+
+# Python仮想環境
+venv/
+env/
+.venv/
+.env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ログファイル
+logs/
+*.log
+
+# 認証情報
 config/credentials.json
 token.json
 secrets/
-logs/
-*.log
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+
+# 一時ファイル
 temp/
 tmp/
 .DS_Store
+
+# IDE
+.vscode/
+.idea/
