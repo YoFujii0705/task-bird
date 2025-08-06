@@ -971,6 +971,8 @@ async def clear_completed_tasks(ctx):
     except Exception as e:
         await ctx.send(f"❌ 削除エラー: {str(e)}")
 
+# ===== 変更箇所1: 毎日通知を一週間以内のタスクのみに変更 =====
+
 @tasks.loop(time=time(hour=0, minute=0))  # 日本時間の朝9時の場合は hour=0 (UTC)
 async def daily_reminder():
     try:
@@ -994,9 +996,10 @@ async def daily_reminder():
         if len(all_values) <= 1:
             return
 
-        # ユーザーごとのタスク情報を収集
+        # ユーザーごとのタスク情報を収集（一週間以内のみ）
         user_tasks = {}
         today = datetime.now().date()
+        one_week_later = today + timedelta(days=7)
 
         for row in all_values[1:]:
             if len(row) >= 6 and row[2] != 'TRUE':  # 未完了タスクのみ
@@ -1011,19 +1014,33 @@ async def daily_reminder():
                     except ValueError:
                         pass
                 
-                if user_name not in user_tasks:
-                    user_tasks[user_name] = []
+                # 一週間以内のタスクまたは期限なしタスクのみ表示
+                should_include = False
+                if due_date is None:
+                    # 期限なしタスクは作成から1週間以内のもののみ
+                    try:
+                        created = datetime.strptime(created_date, '%Y/%m/%d %H:%M:%S').date()
+                        if (today - created).days <= 7:
+                            should_include = True
+                    except:
+                        should_include = True  # 日付解析できない場合は含める
+                elif due_date <= one_week_later:
+                    should_include = True
                 
-                user_tasks[user_name].append({
-                    'name': task_name,
-                    'created': created_date,
-                    'due_date': due_date
-                })
+                if should_include:
+                    if user_name not in user_tasks:
+                        user_tasks[user_name] = []
+                    
+                    user_tasks[user_name].append({
+                        'name': task_name,
+                        'created': created_date,
+                        'due_date': due_date
+                    })
 
         if not user_tasks:
             embed = discord.Embed(
                 title="🌅 おはようございます！",
-                description="現在、未完了のタスクはありません！\n今日も素晴らしい一日を！",
+                description="現在、一週間以内の未完了タスクはありません！\n今日も素晴らしい一日を！",
                 color=0x00ff00
             )
             await channel.send(embed=embed)
@@ -1036,7 +1053,7 @@ async def daily_reminder():
         # メイン通知メッセージ
         embed = discord.Embed(
             title="🌅 おはようございます！",
-            description="今日のタスク状況をお知らせします",
+            description="今週のタスク状況をお知らせします",
             color=0xff9500
         )
 
@@ -1047,11 +1064,14 @@ async def daily_reminder():
             # 緊急・期限切れタスクの数をカウント
             urgent_count = 0
             overdue_count = 0
+            today_count = 0
             for task in tasks:
                 if task['due_date']:
                     diff = (task['due_date'] - today).days
                     if diff < 0:
                         overdue_count += 1
+                    elif diff == 0:
+                        today_count += 1
                     elif diff <= 3:
                         urgent_count += 1
             
@@ -1069,37 +1089,58 @@ async def daily_reminder():
             field_title = f"📝 {user_name}さん ({task_count}件"
             if overdue_count > 0:
                 field_title += f", 🔴{overdue_count}件期限切れ"
+            if today_count > 0:
+                field_title += f", ⚡{today_count}件今日まで"
             elif urgent_count > 0:
                 field_title += f", 🟡{urgent_count}件緊急"
             field_title += ")"
             
             # フィールドに追加
             embed.add_field(
-                name=field_title,
-                value=task_list if task_list else "タスクなし",
-                inline=False
-            )
+        name="⚡ 便利な追加コマンド",
+        value="`!todayadd [タスク名]` - 今日締切のタスク追加\n`!tomorrowadd [タスク名]` - 明日締切のタスク追加\n`!thisweek [タスク名] [曜日]` - 今週締切のタスク追加",
+        inline=False
+    )
 
-        # フッターにコマンド案内を追加
-        embed.add_field(
-            name="📱 便利なコマンド",
-            value="`!tasks` - 自分のタスク確認\n`!urgent` - 緊急タスクのみ\n`!today` - 今日期限のタスク\n`!complete [番号]` - タスク完了",
-            inline=False
-        )
+    embed.add_field(
+        name="⏰ 期限付きコマンド",
+        value="`!urgent` - 3日以内の緊急タスク\n`!today` - 今日期限のタスク\n`!postpone [番号] [新期限]` - タスク延期",
+        inline=False
+    )
 
-        embed.set_footer(text="今日も頑張りましょう！💪")
+    embed.add_field(
+        name="🔧 編集・管理コマンド",
+        value="`!edit [番号] [新内容]` - タスク編集\n`!search [キーワード]` - タスク検索\n`!clearmytasks` - 自分のタスク全削除\n`!clearpending` - 未完了タスクのみ削除",
+        inline=False
+    )
 
-        await channel.send(embed=embed)
-        print("📢 毎日通知を送信しました")
+    embed.add_field(
+        name="📊 確認・統計コマンド",
+        value="`!alltasks` - 全員のタスク状況\n`!taskstats` - 統計情報\n`!weeklyreport` - 週間パフォーマンスレポート",
+        inline=False
+    )
 
-    except Exception as e:
-        print(f"❌ 毎日通知エラー: {e}")
+    embed.add_field(
+        name="📅 期限の入力例",
+        value="• `今日` `明日` `明後日`\n• `月曜` `火曜` `来週金曜`\n• `来週` `来月`\n• `3日後` `2025-07-30`\n• `7/30` `12-25`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔔 自動機能",
+        value="毎日朝に一週間以内のタスクを通知\n期限切れ・緊急タスクを強調表示",
+        inline=False
+    )
+
+    embed.set_footer(text="例: !todayadd 資料作成 | !edit 1 新しいタスク名 明日")
+
+    await ctx.send(embed=embed)
 
 @bot.command(name='testreminder')
 async def test_reminder(ctx):
-    """毎朝通知のテスト実行"""
+    """毎朝通知のテスト実行（一週間以内のタスクのみ）"""
     try:
-        await ctx.send("🧪 **毎朝通知のテストを実行します**")
+        await ctx.send("🧪 **毎朝通知のテストを実行します（一週間以内のタスクのみ）**")
         
         sheet = setup_google_sheets()
         if not sheet:
@@ -1112,9 +1153,10 @@ async def test_reminder(ctx):
             await ctx.send("📊 テスト結果: タスクが登録されていません")
             return
 
-        # ユーザーごとのタスク情報を収集
+        # ユーザーごとのタスク情報を収集（一週間以内のみ）
         user_tasks = {}
         today = datetime.now().date()
+        one_week_later = today + timedelta(days=7)
 
         for row in all_values[1:]:
             if len(row) >= 6 and row[2] != 'TRUE':  # 未完了タスクのみ
@@ -1129,19 +1171,33 @@ async def test_reminder(ctx):
                     except ValueError:
                         pass
                 
-                if user_name not in user_tasks:
-                    user_tasks[user_name] = []
+                # 一週間以内のタスクまたは期限なしタスクのみ表示
+                should_include = False
+                if due_date is None:
+                    # 期限なしタスクは作成から1週間以内のもののみ
+                    try:
+                        created = datetime.strptime(created_date, '%Y/%m/%d %H:%M:%S').date()
+                        if (today - created).days <= 7:
+                            should_include = True
+                    except:
+                        should_include = True  # 日付解析できない場合は含める
+                elif due_date <= one_week_later:
+                    should_include = True
                 
-                user_tasks[user_name].append({
-                    'name': task_name,
-                    'created': created_date,
-                    'due_date': due_date
-                })
+                if should_include:
+                    if user_name not in user_tasks:
+                        user_tasks[user_name] = []
+                    
+                    user_tasks[user_name].append({
+                        'name': task_name,
+                        'created': created_date,
+                        'due_date': due_date
+                    })
 
         if not user_tasks:
             embed = discord.Embed(
                 title="🌅 おはようございます！（テスト）",
-                description="現在、未完了のタスクはありません！\n今日も素晴らしい一日を！",
+                description="現在、一週間以内の未完了タスクはありません！\n今日も素晴らしい一日を！",
                 color=0x00ff00
             )
             await ctx.send(embed=embed)
@@ -1154,7 +1210,7 @@ async def test_reminder(ctx):
         # メイン通知メッセージ
         embed = discord.Embed(
             title="🌅 おはようございます！（テスト）",
-            description="今日のタスク状況をお知らせします",
+            description="今週のタスク状況をお知らせします",
             color=0xff9500
         )
 
@@ -1165,11 +1221,14 @@ async def test_reminder(ctx):
             # 緊急・期限切れタスクの数をカウント
             urgent_count = 0
             overdue_count = 0
+            today_count = 0
             for task in tasks:
                 if task['due_date']:
                     diff = (task['due_date'] - today).days
                     if diff < 0:
                         overdue_count += 1
+                    elif diff == 0:
+                        today_count += 1
                     elif diff <= 3:
                         urgent_count += 1
             
@@ -1187,6 +1246,8 @@ async def test_reminder(ctx):
             field_title = f"📝 {user_name}さん ({task_count}件"
             if overdue_count > 0:
                 field_title += f", 🔴{overdue_count}件期限切れ"
+            if today_count > 0:
+                field_title += f", ⚡{today_count}件今日まで"
             elif urgent_count > 0:
                 field_title += f", 🟡{urgent_count}件緊急"
             field_title += ")"
@@ -1201,66 +1262,709 @@ async def test_reminder(ctx):
         # フッターにコマンド案内を追加
         embed.add_field(
             name="📱 便利なコマンド",
-            value="`!tasks` - 自分のタスク確認\n`!urgent` - 緊急タスクのみ\n`!today` - 今日期限のタスク\n`!complete [番号]` - タスク完了",
+            value="`!tasks` - 自分のタスク確認\n`!urgent` - 緊急タスクのみ\n`!todayadd [タスク名]` - 今日締切のタスク追加\n`!complete [番号]` - タスク完了",
             inline=False
         )
 
-        embed.set_footer(text="テスト実行完了！💪")
+        embed.set_footer(text="テスト実行完了！💪 (一週間以内のタスクを表示)")
 
         await ctx.send(embed=embed)
-        await ctx.send("✅ **テスト完了！** この形式で毎朝通知されます")
+        await ctx.send("✅ **テスト完了！** この形式で毎朝通知されます（一週間以内のタスクのみ）")
 
     except Exception as e:
         await ctx.send(f"❌ テストエラー: {str(e)}")
         print(f"❌ テスト通知エラー: {e}")
+                name=field_title,
+                value=task_list if task_list else "タスクなし",
+                inline=False
+            )
+
+        # フッターにコマンド案内を追加
+        embed.add_field(
+            name="📱 便利なコマンド",
+            value="`!tasks` - 自分のタスク確認\n`!urgent` - 緊急タスクのみ\n`!todayadd [タスク名]` - 今日締切のタスク追加\n`!complete [番号]` - タスク完了",
+            inline=False
+        )
+
+        embed.set_footer(text="今日も頑張りましょう！💪 (一週間以内のタスクを表示)")
+
+        await channel.send(embed=embed)
+        print("📢 毎日通知を送信しました（一週間以内のタスクのみ）")
+
+    except Exception as e:
+        print(f"❌ 毎日通知エラー: {e}")
+
+# ===== 新機能3: 明日締切のタスク追加コマンド =====
+
+@bot.command(name='tomorrowadd')
+async def add_tomorrow_task(ctx, *, task_name):
+    """明日締切のタスクを追加"""
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        now = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+        tomorrow = (datetime.now().date() + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        sheet.append_row([
+            task_name,
+            now,
+            'FALSE',
+            '',
+            str(ctx.author.id),
+            ctx.author.display_name,
+            tomorrow
+        ])
+
+        embed = discord.Embed(
+            title="🟠 明日締切タスク追加完了",
+            description=f"**{task_name}**",
+            color=0xff9500
+        )
+        
+        embed.add_field(
+            name="📅 期限",
+            value="🟠 明日まで",
+            inline=False
+        )
+        
+        embed.set_author(name=ctx.author.display_name)
+
+        await ctx.send(embed=embed)
+        print(f"🟠 明日締切タスク追加: {task_name} by {ctx.author.display_name}")
+
+    except Exception as e:
+        await ctx.send(f"❌ エラー: {str(e)}")
+
+# ===== 新機能4: 今週締切のタスク追加コマンド =====
+
+@bot.command(name='thisweek')
+async def add_thisweek_task(ctx, *, task_input):
+    """今週締切のタスクを追加（曜日指定可能）
+    使用例: !thisweek レポート提出 金曜
+           !thisweek 買い物
+    """
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        # タスク名と曜日を分離
+        parts = task_input.rsplit(' ', 1)
+        if len(parts) == 2:
+            task_name, day_text = parts
+            due_date = parse_due_date(day_text)
+            
+            # 今週内かチェック
+            today = datetime.now().date()
+            week_end = today + timedelta(days=(6 - today.weekday()))  # 今週の日曜日
+            
+            if due_date and due_date <= week_end:
+                # 今週内の指定された曜日
+                pass
+            else:
+                # 曜日として認識できない、または来週以降の場合は今週金曜日に設定
+                task_name = task_input
+                friday_offset = (4 - today.weekday()) % 7  # 4 = 金曜日
+                if friday_offset == 0 and datetime.now().hour >= 17:  # 今日が金曜の夕方以降
+                    friday_offset = 7  # 来週金曜
+                due_date = today + timedelta(days=friday_offset)
+        else:
+            task_name = task_input
+            # デフォルトは今週金曜日
+            today = datetime.now().date()
+            friday_offset = (4 - today.weekday()) % 7
+            if friday_offset == 0 and datetime.now().hour >= 17:
+                friday_offset = 7
+            due_date = today + timedelta(days=friday_offset)
+
+        now = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+        due_date_str = due_date.strftime('%Y-%m-%d')
+
+        sheet.append_row([
+            task_name,
+            now,
+            'FALSE',
+            '',
+            str(ctx.author.id),
+            ctx.author.display_name,
+            due_date_str
+        ])
+
+        embed = discord.Embed(
+            title="📅 今週締切タスク追加完了",
+            description=f"**{task_name}**",
+            color=0x3498db
+        )
+        
+        embed.add_field(
+            name="📅 期限",
+            value=format_due_date(due_date),
+            inline=False
+        )
+        
+        embed.set_author(name=ctx.author.display_name)
+
+        await ctx.send(embed=embed)
+        print(f"📅 今週締切タスク追加: {task_name} ({due_date}) by {ctx.author.display_name}")
+
+    except Exception as e:
+        await ctx.send(f"❌ エラー: {str(e)}")
+
+# ===== 新機能5: タスク検索コマンド =====
+
+@bot.command(name='search')
+async def search_tasks(ctx, *, keyword):
+    """タスクを検索"""
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        all_values = sheet.get_all_values()
+
+        if len(all_values) <= 1:
+            await ctx.send("📋 検索対象のタスクがありません")
+            return
+
+        # 自分のタスクから検索
+        matching_tasks = []
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) >= 6 and row[4] == str(ctx.author.id):
+                if keyword.lower() in row[0].lower():  # タスク名に含まれるかチェック
+                    due_date = None
+                    if len(row) >= 7 and row[6]:
+                        try:
+                            due_date = datetime.strptime(row[6], '%Y-%m-%d').date()
+                        except ValueError:
+                            pass
+                    
+                    matching_tasks.append({
+                        'row': i,
+                        'name': row[0],
+                        'created': row[1],
+                        'completed': row[2] == 'TRUE',
+                        'due_date': due_date
+                    })
+
+        if not matching_tasks:
+            embed = discord.Embed(
+                title="🔍 検索結果",
+                description=f"「**{keyword}**」に一致するタスクが見つかりませんでした",
+                color=0x95a5a6
+            )
+            await ctx.send(embed=embed)
+            return
+
+        # 未完了タスクを上位に、その後期限順でソート
+        matching_tasks.sort(key=lambda x: (x['completed'], get_urgency_level(x['due_date'])))
+
+        embed = discord.Embed(
+            title=f"🔍 検索結果: 「{keyword}」",
+            description=f"{len(matching_tasks)}件のタスクが見つかりました",
+            color=0x3498db
+        )
+
+        task_list = ""
+        for i, task in enumerate(matching_tasks[:10]):  # 最大10件表示
+            status = "✅ 完了" if task['completed'] else "📝 未完了"
+            due_info = format_due_date(task['due_date']) if not task['completed'] else ""
+            task_list += f"**{i+1}.** {task['name']} - {status}\n"
+            if due_info and not task['completed']:
+                task_list += f"　📅 {due_info}\n"
+            task_list += "\n"
+
+        embed.description = f"{len(matching_tasks)}件のタスクが見つかりました\n\n{task_list}"
+
+        if len(matching_tasks) > 10:
+            embed.set_footer(text=f"他{len(matching_tasks) - 10}件の結果があります")
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        await ctx.send(f"❌ 検索エラー: {str(e)}")
+
+# ===== 新機能6: タスク編集コマンド =====
+
+@bot.command(name='edit')
+async def edit_task(ctx, task_number: int, *, new_content):
+    """タスクを編集
+    使用例: !edit 1 新しいタスク名
+           !edit 2 新しいタスク名 明日
+    """
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        all_values = sheet.get_all_values()
+
+        # 自分の未完了タスクを取得
+        user_tasks = []
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) >= 6 and row[4] == str(ctx.author.id) and row[2] != 'TRUE':
+                due_date = None
+                if len(row) >= 7 and row[6]:
+                    try:
+                        due_date = datetime.strptime(row[6], '%Y-%m-%d').date()
+                    except ValueError:
+                        pass
+                
+                user_tasks.append({
+                    'row': i,
+                    'name': row[0],
+                    'due_date': due_date
+                })
+
+        user_tasks.sort(key=lambda x: get_urgency_level(x['due_date']))
+
+        if not user_tasks:
+            await ctx.send("❌ 編集可能なタスクがありません")
+            return
+
+        if task_number < 1 or task_number > len(user_tasks):
+            await ctx.send(f"❌ 無効な番号です (1-{len(user_tasks)})")
+            return
+
+        target_task = user_tasks[task_number - 1]
+        target_row = target_task['row']
+
+        # 新しい内容と期限を分離
+        parts = new_content.rsplit(' ', 1)
+        if len(parts) == 2:
+            new_task_name, due_text = parts
+            new_due_date = parse_due_date(due_text)
+            if new_due_date is None:
+                new_task_name = new_content
+                new_due_date = target_task['due_date']  # 元の期限を保持
+        else:
+            new_task_name = new_content
+            new_due_date = target_task['due_date']  # 元の期限を保持
+
+        # タスク名を更新
+        sheet.update_cell(target_row, 1, new_task_name)
+        
+        # 期限を更新
+        if new_due_date:
+            sheet.update_cell(target_row, 7, new_due_date.strftime('%Y-%m-%d'))
+        else:
+            sheet.update_cell(target_row, 7, '')
+
+        embed = discord.Embed(
+            title="✏️ タスク編集完了",
+            color=0x3498db
+        )
+        
+        embed.add_field(
+            name="📝 変更前",
+            value=f"{target_task['name']}\n📅 {format_due_date(target_task['due_date'])}",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📝 変更後",
+            value=f"{new_task_name}\n📅 {format_due_date(new_due_date)}",
+            inline=False
+        )
+        
+        embed.set_author(name=ctx.author.display_name)
+
+        await ctx.send(embed=embed)
+        print(f"✏️ タスク編集: {target_task['name']} → {new_task_name} by {ctx.author.display_name}")
+
+    except ValueError:
+        await ctx.send("❌ 有効な番号を入力してください")
+    except Exception as e:
+        await ctx.send(f"❌ 編集エラー: {str(e)}")
+
+# ===== 新機能7: タスク延期コマンド =====
+
+@bot.command(name='postpone')
+async def postpone_task(ctx, task_number: int, *, due_text="明日"):
+    """タスクの期限を延期
+    使用例: !postpone 1 明日
+           !postpone 2 来週金曜
+           !postpone 3  (デフォルトで明日に延期)
+    """
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        all_values = sheet.get_all_values()
+
+        # 自分の未完了タスクを取得
+        user_tasks = []
+        for i, row in enumerate(all_values[1:], start=2):
+            if len(row) >= 6 and row[4] == str(ctx.author.id) and row[2] != 'TRUE':
+                due_date = None
+                if len(row) >= 7 and row[6]:
+                    try:
+                        due_date = datetime.strptime(row[6], '%Y-%m-%d').date()
+                    except ValueError:
+                        pass
+                
+                user_tasks.append({
+                    'row': i,
+                    'name': row[0],
+                    'due_date': due_date
+                })
+
+        user_tasks.sort(key=lambda x: get_urgency_level(x['due_date']))
+
+        if not user_tasks:
+            await ctx.send("❌ 延期可能なタスクがありません")
+            return
+
+        if task_number < 1 or task_number > len(user_tasks):
+            await ctx.send(f"❌ 無効な番号です (1-{len(user_tasks)})")
+            return
+
+        target_task = user_tasks[task_number - 1]
+        target_row = target_task['row']
+
+        # 新しい期限を解析
+        new_due_date = parse_due_date(due_text)
+        if new_due_date is None:
+            await ctx.send(f"❌ 期限「{due_text}」を理解できませんでした")
+            return
+
+        # 期限を更新
+        sheet.update_cell(target_row, 7, new_due_date.strftime('%Y-%m-%d'))
+
+        embed = discord.Embed(
+            title="⏰ タスク延期完了",
+            description=f"**{target_task['name']}**",
+            color=0xff9500
+        )
+        
+        if target_task['due_date']:
+            embed.add_field(
+                name="📅 変更前の期限",
+                value=format_due_date(target_task['due_date']),
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="📅 変更前の期限",
+                value="期限なし",
+                inline=True
+            )
+        
+        embed.add_field(
+            name="📅 新しい期限",
+            value=format_due_date(new_due_date),
+            inline=True
+        )
+        
+        embed.set_author(name=ctx.author.display_name)
+
+        await ctx.send(embed=embed)
+        print(f"⏰ タスク延期: {target_task['name']} → {new_due_date} by {ctx.author.display_name}")
+
+    except ValueError:
+        await ctx.send("❌ 有効な番号を入力してください")
+    except Exception as e:
+        await ctx.send(f"❌ 延期エラー: {str(e)}")
+
+# ===== 新機能8: 週間レポートコマンド =====
+
+@bot.command(name='weeklyreport')
+async def weekly_report(ctx):
+    """今週の完了タスク数とパフォーマンスレポート"""
+    try:
+        sheet = setup_google_sheets()
+        if not sheet:
+            await ctx.send("❌ スプレッドシートに接続できません")
+            return
+
+        all_values = sheet.get_all_values()
+
+        if len(all_values) <= 1:
+            await ctx.send("📊 レポート対象のタスクがありません")
+            return
+
+        # 今週の開始日（月曜日）と終了日（日曜日）を計算
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())  # 今週の月曜日
+        week_end = week_start + timedelta(days=6)  # 今週の日曜日
+
+        # 自分のタスク統計
+        total_completed = 0
+        this_week_completed = 0
+        overdue_completed = 0  # 期限切れを完了
+        on_time_completed = 0  # 期限内完了
+        pending_tasks = 0
+        urgent_pending = 0
+
+        for row in all_values[1:]:
+            if len(row) >= 6 and row[4] == str(ctx.author.id):
+                is_completed = row[2] == 'TRUE'
+                
+                if is_completed:
+                    total_completed += 1
+                    
+                    # 今週完了したタスクかチェック
+                    if len(row) >= 4 and row[3]:  # 完了日があるか
+                        try:
+                            completed_date = datetime.strptime(row[3], '%Y/%m/%d %H:%M:%S').date()
+                            if week_start <= completed_date <= week_end:
+                                this_week_completed += 1
+                                
+                                # 期限内完了かチェック
+                                if len(row) >= 7 and row[6]:
+                                    try:
+                                        due_date = datetime.strptime(row[6], '%Y-%m-%d').date()
+                                        if completed_date <= due_date:
+                                            on_time_completed += 1
+                                        else:
+                                            overdue_completed += 1
+                                    except ValueError:
+                                        pass
+                        except ValueError:
+                            pass
+                else:
+                    pending_tasks += 1
+                    
+                    # 緊急タスクかチェック
+                    if len(row) >= 7 and row[6]:
+                        try:
+                            due_date = datetime.strptime(row[6], '%Y-%m-%d').date()
+                            if (due_date - today).days <= 3:
+                                urgent_pending += 1
+                        except ValueError:
+                            pass
+
+        embed = discord.Embed(
+            title=f"📊 {ctx.author.display_name}さんの週間レポート",
+            description=f"対象期間: {week_start.strftime('%-m/%-d')} ～ {week_end.strftime('%-m/%-d')}",
+            color=0x3498db
+        )
+
+        # 今週の実績
+        embed.add_field(
+            name="🏆 今週の実績",
+            value=f"完了タスク: **{this_week_completed}件**\n期限内完了: **{on_time_completed}件**\n期限切れ完了: **{overdue_completed}件**",
+            inline=False
+        )
+
+        # 現在の状況
+        embed.add_field(
+            name="📋 現在の状況",
+            value=f"未完了タスク: **{pending_tasks}件**\n緊急タスク: **{urgent_pending}件**",
+            inline=False
+        )
+
+        # パフォーマンス評価
+        if this_week_completed > 0:
+            on_time_rate = (on_time_completed / this_week_completed) * 100
+            performance_text = f"期限内完了率: **{on_time_rate:.1f}%**\n"
+            
+            if on_time_rate >= 90:
+                performance_text += "🌟 素晴らしいパフォーマンスです！"
+                embed.color = 0x00ff00
+            elif on_time_rate >= 70:
+                performance_text += "👍 良好なパフォーマンスです！"
+                embed.color = 0xffd700
+            else:
+                performance_text += "📈 改善の余地があります"
+                embed.color = 0xff9500
+        else:
+            performance_text = "今週はまだタスクを完了していません"
+
+        embed.add_field(
+            name="📈 パフォーマンス",
+            value=performance_text,
+            inline=False
+        )
+
+        # 通算成績
+        embed.add_field(
+            name="🎯 通算成績",
+            value=f"総完了タスク: **{total_completed}件**",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        await ctx.send(f"❌ レポートエラー: {str(e)}")
 
 @bot.command(name='taskhelp')
 async def help_command(ctx):
-    embed = discord.Embed(
-        title="🤖 タスク管理Bot（期限機能付き）",
-        description="Discordでタスク管理を簡単に！期限順での管理が可能です",
+    """網羅的なヘルプを複数のメッセージに分けて表示"""
+    
+    # メッセージ1: 基本機能
+    embed1 = discord.Embed(
+        title="🤖 タスク管理Bot - 完全ガイド (1/4)",
+        description="**Discordで高機能なタスク管理を実現！**\n期限管理、検索、編集など豊富な機能を搭載",
         color=0x3498db
     )
 
-    embed.add_field(
-        name="📝 基本コマンド",
-        value="`!addtask [内容]` - タスク追加（期限なし）\n`!addtask [内容] [期限]` - 期限付きタスク追加\n`!tasks` - 自分のタスク確認（期限順）\n`!complete [番号]` - タスク完了",
+    embed1.add_field(
+        name="📝 基本のタスク管理",
+        value="`!addtask [内容]` - タスク追加（期限なし）\n"
+              "`!addtask [内容] [期限]` - 期限付きタスク追加\n"
+              "`!tasks` - 自分のタスク一覧（期限順）\n"
+              "`!complete [番号]` - タスクを完了にする",
         inline=False
     )
 
-    embed.add_field(
-        name="⏰ 期限付きコマンド",
-        value="`!urgent` - 3日以内の緊急タスク\n`!today` - 今日期限のタスク",
+    embed1.add_field(
+        name="⚡ 便利な追加コマンド",
+        value="`!todayadd [タスク名]` - 今日締切のタスク追加\n"
+              "`!tomorrowadd [タスク名]` - 明日締切のタスク追加\n"
+              "`!thisweek [タスク名] [曜日]` - 今週締切のタスク追加\n"
+              "　例: `!thisweek レポート提出 金曜`",
         inline=False
     )
 
-    embed.add_field(
-        name="📊 確認コマンド",
-        value="`!alltasks` - 全員のタスク状況\n`!taskstats` - 統計情報",
+    embed1.add_field(
+        name="📅 期限の書き方例",
+        value="• **日本語**: `今日` `明日` `明後日` `来週`\n"
+              "• **曜日**: `月曜` `火曜` `来週金曜`\n"
+              "• **相対**: `3日後` `来月`\n"
+              "• **日付**: `2025-12-25` `12/25` `12-25`",
         inline=False
     )
 
-    embed.add_field(
-        name="🔧 管理コマンド",
-        value="`!clearmytasks` - 自分のタスク全削除\n`!clearpending` - 自分の未完了タスク削除\n`!clearcompleted` - 完了済みタスク削除\n`!testreminder` - 通知テスト",
+    embed1.set_footer(text="→ 次のページで確認・編集コマンドを紹介")
+    await ctx.send(embed=embed1)
+    
+    # 少し間隔を空ける
+    await asyncio.sleep(2)
+
+    # メッセージ2: 確認・編集機能
+    embed2 = discord.Embed(
+        title="🔍 タスク管理Bot - 完全ガイド (2/4)",
+        description="**確認・編集・検索機能**",
+        color=0xff9500
+    )
+
+    embed2.add_field(
+        name="👀 タスク確認コマンド",
+        value="`!tasks` - 自分のタスク一覧（期限順）\n"
+              "`!urgent` - 3日以内の緊急タスクのみ\n"
+              "`!today` - 今日期限のタスクのみ\n"
+              "`!alltasks` - チーム全体のタスク状況\n"
+              "`!search [キーワード]` - タスクを検索",
         inline=False
     )
 
-    embed.add_field(
-        name="📅 期限の入力例",
-        value="• `今日` `明日` `明後日`\n• `月曜` `火曜` `来週金曜`\n• `来週` `来月`\n• `3日後` `2025-07-30`\n• `7/30` `12-25`",
+    embed2.add_field(
+        name="✏️ タスク編集コマンド",
+        value="`!edit [番号] [新内容]` - タスク名・期限を編集\n"
+              "　例: `!edit 1 新しいタスク名 明日`\n"
+              "`!postpone [番号] [新期限]` - 期限を延期\n"
+              "　例: `!postpone 2 来週金曜`",
         inline=False
     )
 
-    embed.add_field(
-        name="🔔 自動機能",
-        value="毎日朝に期限順でタスクを通知\n期限切れ・緊急タスクも強調表示",
+    embed2.add_field(
+        name="🗑️ 削除コマンド",
+        value="`!clearmytasks` - 自分のタスク全削除\n"
+              "`!clearpending` - 自分の未完了タスクのみ削除\n"
+              "`!clearcompleted` - 完了済みタスク削除（管理者用）",
         inline=False
     )
 
-    embed.set_footer(text="例: !addtask レポート提出 明日")
+    embed2.set_footer(text="→ 次のページで統計・レポート機能を紹介")
+    await ctx.send(embed=embed2)
+    
+    await asyncio.sleep(2)
 
-    await ctx.send(embed=embed)
+    # メッセージ3: 統計・レポート機能
+    embed3 = discord.Embed(
+        title="📊 タスク管理Bot - 完全ガイド (3/4)",
+        description="**統計・レポート・自動通知機能**",
+        color=0x00ff00
+    )
+
+    embed3.add_field(
+        name="📈 統計・レポート",
+        value="`!taskstats` - 全体の統計情報\n"
+              "　• 完了率、期限切れ件数など\n"
+              "`!weeklyreport` - 個人の週間パフォーマンス\n"
+              "　• 今週の完了数、期限内完了率など",
+        inline=False
+    )
+
+    embed3.add_field(
+        name="🔔 自動通知機能",
+        value="**毎日朝の定期通知**\n"
+              "• 一週間以内のタスクを自動通知\n"
+              "• 期限切れ・緊急タスクを強調表示\n"
+              "• 各ユーザーのタスク状況を一覧表示",
+        inline=False
+    )
+
+    embed3.add_field(
+        name="🧪 テスト・管理機能",
+        value="`!testreminder` - 毎朝通知のテスト実行\n"
+              "`!testconnection` - Google Sheets接続テスト\n"
+              "`!fixsheet` - シート構造の自動修復",
+        inline=False
+    )
+
+    embed3.set_footer(text="→ 次のページで使用例とコツを紹介")
+    await ctx.send(embed=embed3)
+    
+    await asyncio.sleep(2)
+
+    # メッセージ4: 使用例とコツ
+    embed4 = discord.Embed(
+        title="💡 タスク管理Bot - 完全ガイド (4/4)",
+        description="**実用的な使用例とコツ**",
+        color=0x9b59b6
+    )
+
+    embed4.add_field(
+        name="🌟 実用的な使用例",
+        value="**日常的な使い方:**\n"
+              "`!todayadd 会議資料作成` - 今日中のタスク\n"
+              "`!addtask プレゼン準備 来週月曜` - 計画的なタスク\n"
+              "`!urgent` - 緊急度確認\n"
+              "`!postpone 1 明日` - 予定変更時\n\n"
+              "**チームでの使い方:**\n"
+              "`!alltasks` - チーム状況確認\n"
+              "`!taskstats` - 生産性分析",
+        inline=False
+    )
+
+    embed4.add_field(
+        name="🎯 効率的な使い方のコツ",
+        value="• **期限設定**: 具体的な期限で管理効率UP\n"
+              "• **定期確認**: `!tasks`で毎日チェック\n"
+              "• **検索活用**: `!search`で過去タスクを発見\n"
+              "• **編集機能**: `!edit`で柔軟に調整\n"
+              "• **レポート**: `!weeklyreport`で振り返り",
+        inline=False
+    )
+
+    embed4.add_field(
+        name="🔧 トラブル時の対処",
+        value="• 接続エラー → `!testconnection`\n"
+              "• シート破損 → `!fixsheet`\n"
+              "• 通知テスト → `!testreminder`\n"
+              "• タスク整理 → `!clearpending`",
+        inline=False
+    )
+
+    embed4.add_field(
+        name="📱 よく使うコマンド一覧",
+        value="`!tasks` `!urgent` `!todayadd` `!complete`\n"
+              "`!edit` `!search` `!weeklyreport` `!postpone`",
+        inline=False
+    )
+
+    embed4.set_footer(text="🎉 これでタスク管理をマスター！質問があればお気軽にどうぞ")
+    await ctx.send(embed=embed4)
 
 # 既存のデバッグ・修復系コマンドは省略（元のコードと同じ）
 
