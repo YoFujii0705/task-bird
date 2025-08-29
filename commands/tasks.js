@@ -20,7 +20,11 @@ export default {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('today')
-                .setDescription('今日期限のタスクを表示')),
+                .setDescription('今日期限のタスクを表示'))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('all')
+                .setDescription('全体のタスク状況を表示')),
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
@@ -38,6 +42,9 @@ export default {
                     break;
                 case 'today':
                     await handleTodayTasks(interaction);
+                    break;
+                case 'all':
+                    await handleAllTasks(interaction);
                     break;
             }
         } catch (error) {
@@ -103,7 +110,11 @@ async function handleTasksList(interaction) {
             embed.setFooter({ text: '/tasks complete でタスクを完了できます' });
         }
 
-        await interaction.editReply({ embeds: [embed] });
+        if (i === 0) {
+            await interaction.editReply({ embeds: [embed] });
+        } else {
+            await interaction.followUp({ embeds: [embed] });
+        }
         
         if (i < chunks.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -127,7 +138,7 @@ async function handleTasksComplete(interaction) {
     }
 
     // セレクトメニューを作成（最大25件まで表示）
-    const selectOptions = tasks.slice(0, 25).map((task, index) => {
+    const selectOptions = tasks.slice(0, 25).map((task) => {
         const dueInfo = sheetsManager.formatDueDate(task.dueDate);
         const emoji = sheetsManager.getDueDateEmoji(task.dueDate);
         
@@ -244,5 +255,75 @@ async function handleTodayTasks(interaction) {
     embed.setDescription(description);
     embed.setFooter({ text: '/tasks complete でタスクを完了できます' });
 
+    await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleAllTasks(interaction) {
+    await interaction.deferReply();
+
+    const allTasks = await sheetsManager.getAllTasks();
+    
+    if (!allTasks || allTasks.length === 0) {
+        const embed = new EmbedBuilder()
+            .setTitle('タスクなし')
+            .setDescription('現在、登録されているタスクはありません')
+            .setColor(0x95A5A6);
+
+        await interaction.editReply({ embeds: [embed] });
+        return;
+    }
+
+    // 未完了タスクのみを取得してユーザーごとに分類
+    const pendingTasks = allTasks.filter(task => !task.completed);
+    
+    if (pendingTasks.length === 0) {
+        const embed = new EmbedBuilder()
+            .setTitle('全員完了！')
+            .setDescription('すべてのタスクが完了しています！')
+            .setColor(0x00FF00);
+
+        await interaction.editReply({ embeds: [embed] });
+        return;
+    }
+
+    const userTasks = {};
+    
+    pendingTasks.forEach(task => {
+        const userName = task.userName || 'Unknown';
+        if (!userTasks[userName]) {
+            userTasks[userName] = [];
+        }
+        userTasks[userName].push(task);
+    });
+
+    // 各ユーザーのタスクを期限順にソート
+    Object.keys(userTasks).forEach(userName => {
+        userTasks[userName] = sheetsManager.sortTasksByUrgency(userTasks[userName]);
+    });
+
+    const embed = new EmbedBuilder()
+        .setTitle('全体タスク状況')
+        .setColor(0x3498DB);
+
+    let description = '';
+    
+    for (const [userName, tasks] of Object.entries(userTasks)) {
+        description += `**${userName}さん (${tasks.length}件):**\n`;
+        
+        tasks.slice(0, 5).forEach(task => {
+            const dueInfo = sheetsManager.formatDueDate(task.dueDate);
+            const emoji = sheetsManager.getDueDateEmoji(task.dueDate);
+            description += `• ${task.name} - ${emoji} ${dueInfo}\n`;
+        });
+        
+        if (tasks.length > 5) {
+            description += `• ... 他${tasks.length - 5}件\n`;
+        }
+        
+        description += '\n';
+    }
+
+    embed.setDescription(description);
+    
     await interaction.editReply({ embeds: [embed] });
 }
