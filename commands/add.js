@@ -98,9 +98,12 @@ async function handleAddTask(interaction) {
     const taskName = interaction.options.getString('name');
     const dueText = interaction.options.getString('due');
 
+    console.log('handleAddTask - taskName:', taskName, 'dueText:', dueText);
+
     let dueDate = null;
     if (dueText) {
         dueDate = parseDueDate(dueText);
+        console.log('handleAddTask - parsed dueDate:', dueDate);
         if (!dueDate) {
             await interaction.editReply({
                 content: `期限「${dueText}」を理解できませんでした。\n例: 明日, 来週金曜, 2025-12-25`
@@ -109,12 +112,17 @@ async function handleAddTask(interaction) {
         }
     }
 
+    const dueDateFormatted = dueDate ? formatDateForSheet(dueDate) : null;
+    console.log('handleAddTask - dueDateFormatted:', dueDateFormatted);
+
     const taskData = {
         name: taskName,
         userId: interaction.user.id,
         userName: interaction.user.displayName,
-        dueDate: dueDate ? formatDateForSheet(dueDate) : null
+        dueDate: dueDateFormatted
     };
+
+    console.log('handleAddTask - taskData:', taskData);
 
     await sheetsManager.addTask(taskData);
 
@@ -128,8 +136,10 @@ async function handleAddTask(interaction) {
         });
 
     if (dueDate) {
-        const dueInfo = sheetsManager.formatDueDate(dueDate);
-        const emoji = sheetsManager.getDueDateEmoji(dueDate);
+        // 表示用の日付フォーマット - 作成時点でのdueDateを使用
+        const dueInfo = sheetsManager.formatDueDate(dueDateFormatted);
+        const emoji = sheetsManager.getDueDateEmoji(dueDateFormatted);
+        console.log('handleAddTask - display dueInfo:', dueInfo, 'emoji:', emoji);
         embed.addFields({
             name: '期限',
             value: `${emoji} ${dueInfo}`,
