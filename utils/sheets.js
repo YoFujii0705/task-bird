@@ -1,5 +1,4 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
-import { JWT } from 'google-auth-library';
 
 class SheetsManager {
     constructor() {
@@ -15,18 +14,8 @@ class SheetsManager {
             // サービスアカウント認証情報をパース
             const serviceAccountInfo = JSON.parse(process.env.GOOGLE_SERVICE_KEY);
             
-            // JWT認証
-            const jwt = new JWT({
-                email: serviceAccountInfo.client_email,
-                key: serviceAccountInfo.private_key,
-                scopes: [
-                    'https://www.googleapis.com/auth/spreadsheets',
-                    'https://www.googleapis.com/auth/drive.file'
-                ]
-            });
-
-            // ドキュメント初期化
-            this.doc = new GoogleSpreadsheet(process.env.SPREADSHEET_ID, jwt);
+            // ドキュメント初期化（認証情報を直接渡す）
+            this.doc = new GoogleSpreadsheet(process.env.SPREADSHEET_ID, serviceAccountInfo);
             await this.doc.loadInfo();
 
             console.log(`連携完了: ${this.doc.title}`);
