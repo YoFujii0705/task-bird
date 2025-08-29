@@ -31,9 +31,13 @@ export default {
             }
         }
 
-        // セレクトメニューの処理
+        // セレクトメニューとボタンの処理
         if (interaction.isStringSelectMenu()) {
             await handleSelectMenu(interaction);
+        }
+
+        if (interaction.isButton()) {
+            await handleButton(interaction);
         }
     },
 };
