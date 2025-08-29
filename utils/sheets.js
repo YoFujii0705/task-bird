@@ -228,6 +228,8 @@ class SheetsManager {
             throw new Error('Google Sheetsに接続できません');
         }
 
+        console.log('updateTask - taskId:', taskId, 'userId:', userId, 'updates:', updates);
+
         const rows = await this.sheet.getRows();
         const task = rows.find(row => 
             row.rowNumber === taskId && 
@@ -243,20 +245,31 @@ class SheetsManager {
             dueDate: task.get('期限')
         };
 
+        console.log('updateTask - oldData:', oldData);
+
         if (updates.name !== undefined) {
+            console.log('updateTask - updating name from:', task.get('タスク名'), 'to:', updates.name);
             task.set('タスク名', updates.name);
         }
 
         if (updates.dueDate !== undefined) {
+            console.log('updateTask - updating dueDate from:', task.get('期限'), 'to:', updates.dueDate);
             task.set('期限', updates.dueDate);
         }
 
+        console.log('updateTask - saving task...');
         await task.save();
+        console.log('updateTask - task saved successfully');
+
+        // 保存後にデータを再確認
+        console.log('updateTask - after save - name:', task.get('タスク名'), 'dueDate:', task.get('期限'));
 
         const newData = {
             name: task.get('タスク名'),
             dueDate: task.get('期限')
         };
+
+        console.log('updateTask - newData:', newData);
 
         return { oldData, newData };
     }
