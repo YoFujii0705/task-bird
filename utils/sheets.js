@@ -109,17 +109,22 @@ class SheetsManager {
         const userTasks = rows
             .filter(row => row.get('ユーザーID') === userId.toString())
             .filter(row => includeCompleted || row.get('完了') !== 'TRUE')
-            .map((row, index) => ({
-                id: row.rowNumber,
-                name: row.get('タスク名'),
-                createdAt: row.get('作成日'),
-                completed: row.get('完了') === 'TRUE',
-                completedAt: row.get('完了日'),
-                userId: row.get('ユーザーID'),
-                userName: row.get('ユーザー名'),
-                dueDate: row.get('期限'),
-                row: row
-            }));
+            .map((row, index) => {
+                const dueDateStr = row.get('期限');
+                console.log('getUserTasks dueDate raw:', dueDateStr);
+                
+                return {
+                    id: row.rowNumber,
+                    name: row.get('タスク名'),
+                    createdAt: row.get('作成日'),
+                    completed: row.get('完了') === 'TRUE',
+                    completedAt: row.get('完了日'),
+                    userId: row.get('ユーザーID'),
+                    userName: row.get('ユーザー名'),
+                    dueDate: dueDateStr, // 文字列のまま保持
+                    row: row
+                };
+            });
 
         return this.sortTasksByUrgency(userTasks);
     }
@@ -213,14 +218,32 @@ class SheetsManager {
     formatDueDate(dueDate) {
         if (!dueDate) return '期限なし';
 
+        console.log('formatDueDate input:', dueDate, 'type:', typeof dueDate);
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        const due = new Date(dueDate);
+        // 日付文字列の場合は適切に変換
+        let due;
+        if (typeof dueDate === 'string') {
+            // YYYY-MM-DD形式の場合
+            if (dueDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                due = new Date(dueDate + 'T00:00:00');
+            } else {
+                due = new Date(dueDate);
+            }
+        } else {
+            due = new Date(dueDate);
+        }
+        
         due.setHours(0, 0, 0, 0);
+        
+        console.log('formatDueDate parsed:', due, 'today:', today);
         
         const diffTime = due - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        console.log('formatDueDate diffDays:', diffDays);
 
         const dateStr = due.toLocaleDateString('ja-JP', { 
             month: 'numeric', 
