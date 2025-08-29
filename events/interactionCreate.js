@@ -31,7 +31,7 @@ export default {
             }
         }
 
-        // セレクトメニューとボタンの処理
+        // セレクトメニュー、ボタン、モーダルの処理
         if (interaction.isStringSelectMenu()) {
             await handleSelectMenu(interaction);
         }
@@ -39,12 +39,34 @@ export default {
         if (interaction.isButton()) {
             await handleButton(interaction);
         }
+
+        if (interaction.isModalSubmit()) {
+            await handleModal(interaction);
+        }
     },
 };
 
 async function handleSelectMenu(interaction) {
     if (interaction.customId === 'complete_task_select') {
         await handleTaskComplete(interaction);
+    } else if (interaction.customId === 'edit_task_select') {
+        await handleTaskEdit(interaction);
+    } else if (interaction.customId === 'delete_task_select') {
+        await handleTaskDelete(interaction);
+    } else if (interaction.customId === 'edit_option_select') {
+        await handleEditOption(interaction);
+    }
+}
+
+async function handleButton(interaction) {
+    if (interaction.customId === 'confirm_delete_all') {
+        await handleConfirmDeleteAll(interaction);
+    } else if (interaction.customId === 'confirm_delete_completed') {
+        await handleConfirmDeleteCompleted(interaction);
+    } else if (interaction.customId === 'confirm_delete_pending') {
+        await handleConfirmDeletePending(interaction);
+    } else if (interaction.customId === 'cancel_delete') {
+        await handleCancelDelete(interaction);
     }
 }
 
