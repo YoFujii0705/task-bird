@@ -10,6 +10,8 @@ export function parseDueDate(dueText) {
     const today = new Date();
     const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     
+    console.log('parseDueDate - input:', dueText, 'localToday:', localToday);
+    
     // 今日・明日
     if (['今日', 'きょう', 'today'].includes(text)) {
         return new Date(localToday);
@@ -25,6 +27,17 @@ export function parseDueDate(dueText) {
         const dayAfterTomorrow = new Date(localToday);
         dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
         return dayAfterTomorrow;
+    }
+    
+    // 相対的な日数 - 修正版
+    const daysMatch = text.match(/(\d+)日後/);
+    if (daysMatch) {
+        const days = parseInt(daysMatch[1]);
+        console.log('parseDueDate - found days match:', days);
+        const targetDate = new Date(localToday);
+        targetDate.setDate(targetDate.getDate() + days);
+        console.log('parseDueDate - calculated targetDate:', targetDate);
+        return targetDate;
     }
     
     // 曜日指定
@@ -65,15 +78,6 @@ export function parseDueDate(dueText) {
         const daysUntilMonday = (1 - localToday.getDay() + 7) % 7;
         nextMonday.setDate(nextMonday.getDate() + 7 + daysUntilMonday);
         return nextMonday;
-    }
-    
-    // 相対的な日数
-    const daysMatch = text.match(/(\d+)日後/);
-    if (daysMatch) {
-        const days = parseInt(daysMatch[1]);
-        const targetDate = new Date(localToday);
-        targetDate.setDate(targetDate.getDate() + days);
-        return targetDate;
     }
     
     // 週指定
