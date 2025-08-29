@@ -1,4 +1,5 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
 
 class SheetsManager {
     constructor() {
@@ -11,14 +12,42 @@ class SheetsManager {
         if (this.isInitialized) return true;
 
         try {
+            // 環境変数の確認
+            if (!process.env.GOOGLE_SERVICE_KEY) {
+                throw new Error('GOOGLE_SERVICE_KEY環境変数が設定されていません');
+            }
+            if (!process.env.SPREADSHEET_ID) {
+                throw new Error('SPREADSHEET_ID環境変数が設定されていません');
+            }
+
             // サービスアカウント認証情報をパース
-            const serviceAccountInfo = JSON.parse(process.env.GOOGLE_SERVICE_KEY);
-            
-            // ドキュメント初期化（認証情報を直接渡す）
-            this.doc = new GoogleSpreadsheet(process.env.SPREADSHEET_ID, serviceAccountInfo);
+            let serviceAccountInfo;
+            try {
+                serviceAccountInfo = JSON.parse(process.env.GOOGLE_SERVICE_KEY);
+            } catch (parseError) {
+                throw new Error('GOOGLE_SERVICE_KEY のJSON形式が無効です');
+            }
+
+            // 必要なフィールドの確認
+            if (!serviceAccountInfo.client_email || !serviceAccountInfo.private_key) {
+                throw new Error('サービスアカウント情報にclient_emailまたはprivate_keyが不足しています');
+            }
+
+            // JWT認証設定
+            const serviceAccountAuth = new JWT({
+                email: serviceAccountInfo.client_email,
+                key: serviceAccountInfo.private_key.replace(/\\n/g, '\n'), // 改行文字を正規化
+                scopes: [
+                    'https://www.googleapis.com/auth/spreadsheets',
+                    'https://www.googleapis.com/auth/drive.file'
+                ]
+            });
+
+            // ドキュメント初期化
+            this.doc = new GoogleSpreadsheet(process.env.SPREADSHEET_ID, serviceAccountAuth);
             await this.doc.loadInfo();
 
-            console.log(`連携完了: ${this.doc.title}`);
+            console.log(`Google Sheets連携完了: ${this.doc.title}`);
 
             // シート取得または作成
             const sheetName = process.env.SHEET_NAME || 'tasks';
@@ -30,14 +59,24 @@ class SheetsManager {
                     title: sheetName,
                     headerValues: ['タスク名', '作成日', '完了', '完了日', 'ユーザーID', 'ユーザー名', '期限']
                 });
+            } else {
+                await this.sheet.loadHeaderRow();
+                
+                // ヘッダーの確認と修正
+                const headers = this.sheet.headerValues;
+                const expectedHeaders = ['タスク名', '作成日', '完了', '完了日', 'ユーザーID', 'ユーザー名', '期限'];
+                
+                if (headers.length < expectedHeaders.length) {
+                    console.log('ヘッダーを修正中...');
+                    await this.sheet.setHeaderRow(expectedHeaders);
+                }
             }
 
-            await this.sheet.loadHeaderRow();
             this.isInitialized = true;
             return true;
 
         } catch (error) {
-            console.error('Google Sheets初期化エラー:', error);
+            console.error('Google Sheets初期化エラー:', error.message);
             return false;
         }
     }
