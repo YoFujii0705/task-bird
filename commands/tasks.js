@@ -24,7 +24,11 @@ export default {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('all')
-                .setDescription('全体のタスク状況を表示')),
+                .setDescription('全体のタスク状況を表示'))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('help')
+                .setDescription('タスク管理botの使い方を表示')),
 
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
@@ -45,6 +49,9 @@ export default {
                     break;
                 case 'all':
                     await handleAllTasks(interaction);
+                    break;
+                case 'help':
+                    await handleTasksHelp(interaction);
                     break;
             }
         } catch (error) {
@@ -326,4 +333,123 @@ async function handleAllTasks(interaction) {
     embed.setDescription(description);
     
     await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleTasksHelp(interaction) {
+    await interaction.deferReply();
+
+    // メッセージ1: 基本機能の説明
+    const embed1 = new EmbedBuilder()
+        .setTitle('タスク管理Bot 使い方ガイド (1/3)')
+        .setDescription('Discordでの高機能タスク管理システム')
+        .setColor(0x3498DB);
+
+    embed1.addFields(
+        {
+            name: '基本的なタスク管理',
+            value: '`/add task name:タスク名 due:期限` - 期限付きタスク追加\n' +
+                   '`/add task name:タスク名` - 期限なしタスク追加\n' +
+                   '`/tasks list` - 自分のタスク一覧表示\n' +
+                   '`/tasks complete` - タスクを完了にする',
+            inline: false
+        },
+        {
+            name: '便利な追加コマンド',
+            value: '`/add today name:タスク名` - 今日締切のタスク\n' +
+                   '`/add tomorrow name:タスク名` - 明日締切のタスク\n' +
+                   '`/add thisweek name:タスク名 weekday:曜日` - 今週締切のタスク',
+            inline: false
+        },
+        {
+            name: '確認・絞り込み',
+            value: '`/tasks urgent` - 3日以内の緊急タスクのみ表示\n' +
+                   '`/tasks today` - 今日期限のタスクのみ表示\n' +
+                   '`/tasks all` - チーム全体のタスク状況',
+            inline: false
+        }
+    );
+
+    embed1.setFooter({ text: '続きを確認中...' });
+    await interaction.editReply({ embeds: [embed1] });
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // メッセージ2: 編集・削除機能
+    const embed2 = new EmbedBuilder()
+        .setTitle('タスク管理Bot 使い方ガイド (2/3)')
+        .setDescription('編集・削除機能')
+        .setColor(0xFF9500);
+
+    embed2.addFields(
+        {
+            name: '編集機能',
+            value: '`/edit select` - タスクを選択して編集\n' +
+                   '• タスク名の変更\n' +
+                   '• 期限の変更・削除\n' +
+                   '• セレクトメニューで直感的に操作',
+            inline: false
+        },
+        {
+            name: '削除機能',
+            value: '`/delete select` - 個別タスクを削除\n' +
+                   '`/delete all` - 自分の全タスクを削除\n' +
+                   '`/delete completed` - 完了済みタスクのみ削除\n' +
+                   '`/delete pending` - 未完了タスクのみ削除',
+            inline: false
+        },
+        {
+            name: 'テスト・管理機能',
+            value: '`/test connection` - Google Sheets接続確認\n' +
+                   '`/test reminder` - 毎朝通知のテスト実行',
+            inline: false
+        }
+    );
+
+    embed2.setFooter({ text: '次: 期限指定の方法' });
+    await interaction.followUp({ embeds: [embed2] });
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // メッセージ3: 期限指定の詳細
+    const embed3 = new EmbedBuilder()
+        .setTitle('タスク管理Bot 使い方ガイド (3/3)')
+        .setDescription('期限指定の方法')
+        .setColor(0x00FF00);
+
+    embed3.addFields(
+        {
+            name: '相対的な期限指定',
+            value: '`今日` `明日` `明後日`\n' +
+                   '`3日後` `7日後` `10日後` など\n' +
+                   '`来週` `再来週` `来月`',
+            inline: false
+        },
+        {
+            name: '曜日指定',
+            value: '**今週の曜日:** `月曜` `火曜` `金曜` など\n' +
+                   '**来週の曜日:** `来週月曜` `来週金曜` など\n' +
+                   '**英語も対応:** `monday` `friday` など',
+            inline: false
+        },
+        {
+            name: '具体的な日付指定',
+            value: '**完全な日付:** `2025-12-25` `2025/12/25`\n' +
+                   '**月日のみ:** `12/25` `12-25`\n' +
+                   '※年省略時は今年として扱い、過去日は来年になります',
+            inline: false
+        },
+        {
+            name: '使用例',
+            value: '```\n/add task name:レポート提出 due:明日\n/add task name:会議準備 due:来週金曜\n/add task name:買い物 due:3日後\n/add task name:プレゼン due:2025-12-31```',
+            inline: false
+        },
+        {
+            name: '自動機能',
+            value: '毎朝一週間以内のタスクを自動通知\n期限切れや緊急タスクを色分け表示\nタスクは期限順で自動ソート',
+            inline: false
+        }
+    );
+
+    embed3.setFooter({ text: 'さあ、効率的なタスク管理を始めましょう！' });
+    await interaction.followUp({ embeds: [embed3] });
 }
