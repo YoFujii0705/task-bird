@@ -174,22 +174,91 @@ class SheetsManager {
         };
     }
 
-    async deleteUserTasks(userId, completedOnly = false) {
+    async deleteTask(taskId, userId) {
         if (!await this.initialize()) {
             throw new Error('Google Sheetsに接続できません');
         }
 
         const rows = await this.sheet.getRows();
-        const tasksToDelete = rows.filter(row => 
-            row.get('ユーザーID') === userId.toString() &&
-            (!completedOnly || row.get('完了') === 'TRUE')
+        const task = rows.find(row => 
+            row.rowNumber === taskId && 
+            row.get('ユーザーID') === userId.toString()
         );
+
+        if (!task) {
+            throw new Error('指定されたタスクが見つかりません');
+        }
+
+        const taskName = task.get('タスク名');
+        const dueDate = task.get('期限');
+        
+        await task.delete();
+
+        return {
+            name: taskName,
+            dueDate: dueDate
+        };
+    }
+
+    async deleteUserTasks(userId, completedOnly = false, pendingOnly = false) {
+        if (!await this.initialize()) {
+            throw new Error('Google Sheetsに接続できません');
+        }
+
+        const rows = await this.sheet.getRows();
+        let tasksToDelete = rows.filter(row => 
+            row.get('ユーザーID') === userId.toString()
+        );
+
+        if (completedOnly) {
+            tasksToDelete = tasksToDelete.filter(row => row.get('完了') === 'TRUE');
+        } else if (pendingOnly) {
+            tasksToDelete = tasksToDelete.filter(row => row.get('完了') !== 'TRUE');
+        }
 
         for (const task of tasksToDelete) {
             await task.delete();
         }
 
         return tasksToDelete.length;
+    }
+
+    async updateTask(taskId, userId, updates) {
+        if (!await this.initialize()) {
+            throw new Error('Google Sheetsに接続できません');
+        }
+
+        const rows = await this.sheet.getRows();
+        const task = rows.find(row => 
+            row.rowNumber === taskId && 
+            row.get('ユーザーID') === userId.toString()
+        );
+
+        if (!task) {
+            throw new Error('指定されたタスクが見つかりません');
+        }
+
+        const oldData = {
+            name: task.get('タスク名'),
+            dueDate: task.get('期限')
+        };
+
+        if (updates.name !== undefined) {
+            task.set('タスク名', updates.name);
+        }
+
+        if (updates.dueDate !== undefined) {
+            task.set('期限', updates.dueDate);
+        }
+
+        await task.save();
+
+        const newData = {
+            name: task.get('タスク名'),
+            dueDate: task.get('期限')
+        };
+
+        return { oldData, newData };
     }
 
     sortTasksByUrgency(tasks) {
@@ -203,14 +272,27 @@ class SheetsManager {
     getUrgencyLevel(dueDate) {
         if (!dueDate) return 999; // 期限なしは最後
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // 今日の日付を日本時間で取得
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         
-        const due = new Date(dueDate);
-        due.setHours(0, 0, 0, 0);
+        // 期限日を日本時間で取得
+        let due;
+        if (typeof dueDate === 'string') {
+            // YYYY-MM-DD形式の場合は日本時間として解釈
+            if (dueDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                const [year, month, day] = dueDate.split('-').map(Number);
+                due = new Date(year, month - 1, day);
+            } else {
+                due = new Date(dueDate);
+                due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+            }
+        } else {
+            due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        }
         
         const diffTime = due - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
         return diffDays < 0 ? -1 : diffDays; // 期限切れは最優先
     }
@@ -220,28 +302,29 @@ class SheetsManager {
 
         console.log('formatDueDate input:', dueDate, 'type:', typeof dueDate);
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // 今日の日付を日本時間で取得
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         
-        // 日付文字列の場合は適切に変換
+        // 期限日を日本時間で取得
         let due;
         if (typeof dueDate === 'string') {
-            // YYYY-MM-DD形式の場合
+            // YYYY-MM-DD形式の場合は日本時間として解釈
             if (dueDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                due = new Date(dueDate + 'T00:00:00');
+                const [year, month, day] = dueDate.split('-').map(Number);
+                due = new Date(year, month - 1, day);
             } else {
                 due = new Date(dueDate);
+                due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
             }
         } else {
-            due = new Date(dueDate);
+            due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
         }
         
-        due.setHours(0, 0, 0, 0);
-        
-        console.log('formatDueDate parsed:', due, 'today:', today);
+        console.log('formatDueDate parsed due:', due, 'today:', today);
         
         const diffTime = due - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
         console.log('formatDueDate diffDays:', diffDays);
 
@@ -268,14 +351,27 @@ class SheetsManager {
     getDueDateEmoji(dueDate) {
         if (!dueDate) return '⚪';
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // 今日の日付を日本時間で取得
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         
-        const due = new Date(dueDate);
-        due.setHours(0, 0, 0, 0);
+        // 期限日を日本時間で取得
+        let due;
+        if (typeof dueDate === 'string') {
+            // YYYY-MM-DD形式の場合は日本時間として解釈
+            if (dueDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                const [year, month, day] = dueDate.split('-').map(Number);
+                due = new Date(year, month - 1, day);
+            } else {
+                due = new Date(dueDate);
+                due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+            }
+        } else {
+            due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+        }
         
         const diffTime = due - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays < 0) return '🔴';
         if (diffDays === 0) return '🔴';
