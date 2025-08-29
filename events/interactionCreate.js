@@ -447,9 +447,13 @@ async function handleEditDueModal(interaction) {
         const taskId = parseInt(interaction.customId.split('_')[3]);
         const newDueText = interaction.fields.getTextInputValue('new_due');
 
+        console.log('handleEditDueModal - taskId:', taskId, 'newDueText:', newDueText);
+
         // 期限をパース
         const { parseDueDate, formatDateForSheet } = await import('../utils/dateParser.js');
         const newDueDate = parseDueDate(newDueText);
+        
+        console.log('handleEditDueModal - parsed newDueDate:', newDueDate);
         
         if (!newDueDate) {
             await interaction.editReply({
@@ -458,9 +462,14 @@ async function handleEditDueModal(interaction) {
             return;
         }
 
+        const newDueDateFormatted = formatDateForSheet(newDueDate);
+        console.log('handleEditDueModal - newDueDateFormatted:', newDueDateFormatted);
+
         const { oldData, newData } = await sheetsManager.updateTask(taskId, interaction.user.id, {
-            dueDate: formatDateForSheet(newDueDate)
+            dueDate: newDueDateFormatted
         });
+
+        console.log('handleEditDueModal - oldData:', oldData, 'newData:', newData);
 
         const embed = new EmbedBuilder()
             .setTitle('期限変更完了')
